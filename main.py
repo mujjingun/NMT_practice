@@ -50,7 +50,7 @@ def main(args):
             val_losses = []
 
             # training
-            pbar = tqdm.tqdm(train_loader)
+            pbar = tqdm.tqdm(train_loader, total=227)
             for src_batch, tgt_batch in pbar:
                 loss = transformer.train_step(src_batch, tgt_batch)
                 pbar.set_description("Loss = {:.6f}".format(loss))
@@ -59,7 +59,7 @@ def main(args):
 
             # validation
             for src_batch, tgt_batch in tqdm.tqdm(valid_loader):
-                loss = train_loader.loss(src_batch, tgt_batch)
+                loss = transformer.loss(src_batch, tgt_batch)
                 val_losses.append(loss)
             print("Validation loss ", np.mean(val_losses))
 
