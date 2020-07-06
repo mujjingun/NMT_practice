@@ -23,7 +23,7 @@ def make_pos_embed(max_length, embed_size):
     pos_embed = torch.zeros((1, max_length, embed_size))
     pos_embed[0, :, 0::2] = torch.sin(wt)
     pos_embed[0, :, 1::2] = torch.cos(wt)
-    return pos_embed
+    return pos_embed.cuda()
 
 
 # Input Embedding Layer
