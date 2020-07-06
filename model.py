@@ -1,18 +1,9 @@
 import torch
 import torch.nn.functional as F
 import math
+import tqdm
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
-# Append SOS and EOS to data
-def augment(batch_seq, sos, eos, pad):
-    x = F.pad(batch_seq, [1, 1, 0, 0], value=pad)
-    x[:, 0] = sos
-    mask = (x != pad)
-    end = F.pad((x == pad)[:, 1:] != (x == pad)[:, :-1], [1, 0, 0, 0])
-    x[end] = eos
-    return x, mask
 
 
 # make positional encoding
@@ -68,6 +59,7 @@ class SelfAttention(torch.nn.Module):
         # batched matrix multiply
         qk = torch.einsum('bqhd,bkhd->bhqk', q, k) / math.sqrt(self.head_features)
         # casual mask
+        # FIXME
         qk[torch.triu(torch.ones_like(qk), diagonal=1).bool()] = -math.inf
         # softmax
         a = torch.softmax(qk, dim=3)
@@ -132,15 +124,15 @@ class Encoder(torch.nn.Module):
         self.embedding = embedding
         self.dropout = torch.nn.Dropout(0.1)
         self.ln = torch.nn.LayerNorm(embedding.embed_size).to(device)
-        self.layers = []
+        self.attns = torch.nn.ModuleList()
+        self.ffs = torch.nn.ModuleList()
         for _ in range(num_layers):
-            attn = SelfAttention()
-            ff = PositionwiseFF()
-            self.layers.append((attn, ff))
+            self.attns.append(SelfAttention())
+            self.ffs.append(PositionwiseFF())
 
     def forward(self, source):
         x = self.embedding(source)
-        for attn, ff in self.layers:
+        for attn, ff in zip(self.attns, self.ffs):
             x = x + self.dropout(attn(x))
             x = self.ln(x)
             x = x + self.dropout(ff(x))
@@ -155,16 +147,17 @@ class Decoder(torch.nn.Module):
         self.embedding = embedding
         self.dropout = torch.nn.Dropout(0.1)
         self.ln = torch.nn.LayerNorm(embedding.embed_size).to(device)
-        self.layers = []
+        self.mem_attns = torch.nn.ModuleList()
+        self.self_attns = torch.nn.ModuleList()
+        self.ffs = torch.nn.ModuleList()
         for _ in range(num_layers):
-            mem_attn = MemoryAttention()
-            self_attn = SelfAttention()
-            ff = PositionwiseFF()
-            self.layers.append((mem_attn, self_attn, ff))
+            self.mem_attns.append(MemoryAttention())
+            self.self_attns.append(SelfAttention())
+            self.ffs.append(PositionwiseFF())
 
     def forward(self, encoded, target):
         x = self.embedding(target)
-        for mem_attn, self_attn, ff in self.layers:
+        for mem_attn, self_attn, ff in zip(self.mem_attns, self.self_attns, self.ffs):
             x = x + self.dropout(mem_attn(x, encoded))
             x = self.ln(x)
             x = x + self.dropout(self_attn(x))
@@ -190,19 +183,31 @@ class Transformer(torch.nn.Module):
         self.optim = torch.optim.Adam(self.parameters(), lr=0, betas=(0.9, 0.98), eps=10e-9)
         self.loss_func = torch.nn.CrossEntropyLoss(ignore_index=pad)
 
+    # Append SOS and EOS to data
+    def augment(self, batch_seq):
+        batch_seq = torch.LongTensor(batch_seq).to(device)
+        x = F.pad(batch_seq, [1, 1, 0, 0], value=self.pad)
+        x[:, 0] = self.sos
+        mask = (x != self.pad)
+        end = F.pad((x == self.pad)[:, 1:] != (x == self.pad)[:, :-1], [1, 0, 0, 0])
+        x[end] = self.eos
+        return x, mask
+
     def forward(self, source, target):
         encoded = self.encoder(source)
         result = self.decoder(encoded, target)
         return result
 
-    def train_step(self, source, target):
-        source, src_mask = augment(torch.LongTensor(source).to(device), sos=self.sos, eos=self.eos, pad=self.pad)
-        target, tgt_mask = augment(torch.LongTensor(target).to(device), sos=self.sos, eos=self.eos, pad=self.pad)
+    def loss(self, source, target):
+        source, src_mask = self.augment(source)
+        target, tgt_mask = self.augment(target)
         log_pr = self.forward(source, target[:, :-1])
         loss = self.loss_func(log_pr.reshape(-1, log_pr.shape[2]), target[:, 1:].reshape(-1))
+        return loss
 
+    def train_step(self, source, target):
+        loss = self.loss(source, target)
         lr = self.d_model ** -0.5 * min(self.step ** -0.5, self.step * self.warmup_steps ** -1.5)
-        print("lr = ", lr)
         for group in self.optim.param_groups:
             group['lr'] = lr
         self.optim.zero_grad()
@@ -211,3 +216,33 @@ class Transformer(torch.nn.Module):
         self.step += 1
 
         return loss.item()
+
+    def predict(self, source, max_length=50):
+        source, src_mask = self.augment(source)
+        batch_size = source.shape[0]
+        encoded = self.encoder(source)
+
+        target = torch.zeros([batch_size, 1], dtype=torch.long) + self.sos
+        for _ in tqdm.tqdm(range(max_length)):
+            pr = self.decoder(encoded, target)[:, -1]
+            pr = torch.softmax(pr, dim=1)
+            new_col = torch.multinomial(pr, 1)
+            target = torch.cat([target, new_col], dim=1)
+
+        # TODO: set pad_idx after eos
+
+        return target
+
+    def save(self, file_name):
+        save_state = {
+            'step': self.step,
+            'weights': self.state_dict(),
+            'optim': self.optim.state_dict(),
+        }
+        torch.save(save_state, file_name)
+
+    def load(self, file_name):
+        load_state = torch.load(file_name)
+        self.load_state_dict(load_state['weights'])
+        self.optim.load_state_dict(load_state['optim'])
+        self.step = load_state['step']

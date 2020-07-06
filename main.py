@@ -4,6 +4,8 @@ import argparse
 from dataset.dataloader import load_data, get_loader
 from dataset.field import Vocab
 from utils import seq2sen
+import numpy as np
+import tqdm
 import model
 
 
@@ -31,19 +33,39 @@ def main(args):
         eos=eos_idx,
         pad=pad_idx)
 
+    file_name = "model/checkpoint.t7"
+    if os.path.exists(file_name):
+        print("Loading model from file ", file_name)
+        transformer.load(file_name)
+        print("Loaded.")
+
     if not args.test:
         train_loader = get_loader(src['train'], tgt['train'], src_vocab, tgt_vocab, batch_size=args.batch_size, shuffle=True)
         valid_loader = get_loader(src['valid'], tgt['valid'], src_vocab, tgt_vocab, batch_size=args.batch_size)
 
-        # TODO: train
         for epoch in range(args.epochs):
-            for src_batch, tgt_batch in train_loader:
-                l = transformer.train_step(src_batch, tgt_batch)
-                print("Loss = ", l)
+            print("Epoch ", epoch)
 
-            # TODO: validation
-            for src_batch, tgt_batch in valid_loader:
-                pass
+            train_losses = []
+            val_losses = []
+
+            # training
+            pbar = tqdm.tqdm(train_loader)
+            for src_batch, tgt_batch in pbar:
+                loss = transformer.train_step(src_batch, tgt_batch)
+                pbar.set_description("Loss = {:.6f}".format(loss))
+                train_losses.append(loss)
+            print("Train loss ", np.mean(train_losses))
+
+            # validation
+            for src_batch, tgt_batch in tqdm.tqdm(valid_loader):
+                loss = train_loader.loss(src_batch, tgt_batch)
+                val_losses.append(loss)
+            print("Validation loss ", np.mean(val_losses))
+
+        print("Saving to ", file_name)
+        transformer.save(file_name)
+        print("Saved.")
     else:
         # test
         test_loader = get_loader(src['test'], tgt['test'], src_vocab, tgt_vocab, batch_size=args.batch_size)
@@ -51,7 +73,7 @@ def main(args):
         pred = []
         for src_batch, tgt_batch in test_loader:
             # TODO: predict pred_batch from src_batch with your model.
-            pred_batch = tgt_batch
+            pred_batch = transformer.predict(src_batch)
 
             # every sentences in pred_batch should start with <sos> token (index: 0) and end with <eos> token (index: 1).
             # every <pad> token (index: 2) should be located after <eos> token (index: 1).
@@ -66,6 +88,7 @@ def main(args):
                 f.write('{}\n'.format(line))
 
         os.system('bash scripts/bleu.sh results/pred.txt multi30k/test.de.atok')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Transformer')
