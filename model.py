@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import math
 
-torch.autograd.set_detect_anomaly(True)
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 # Append SOS and EOS to data
@@ -23,7 +23,7 @@ def make_pos_embed(max_length, embed_size):
     pos_embed = torch.zeros((1, max_length, embed_size))
     pos_embed[0, :, 0::2] = torch.sin(wt)
     pos_embed[0, :, 1::2] = torch.cos(wt)
-    return pos_embed.cuda()
+    return pos_embed.to(device)
 
 
 # Input Embedding Layer
@@ -31,7 +31,7 @@ class Embedding(torch.nn.Module):
     def __init__(self, max_length, vocab_size, pad, embed_size=512):
         super(Embedding, self).__init__()
         self.embed_size = embed_size
-        self.embed = torch.nn.Embedding(vocab_size, embed_size, padding_idx=pad)
+        self.embed = torch.nn.Embedding(vocab_size, embed_size, padding_idx=pad).to(device)
         self.pos_embed = make_pos_embed(max_length, embed_size)
         self.dropout = torch.nn.Dropout(0.1)
 
@@ -54,10 +54,10 @@ class SelfAttention(torch.nn.Module):
         self.in_features = in_features
         self.num_heads = num_heads
         self.head_features = in_features // num_heads
-        self.wq = torch.nn.Linear(in_features, in_features)
-        self.wk = torch.nn.Linear(in_features, in_features)
-        self.wv = torch.nn.Linear(in_features, in_features)
-        self.wo = torch.nn.Linear(in_features, in_features)
+        self.wq = torch.nn.Linear(in_features, in_features).to(device)
+        self.wk = torch.nn.Linear(in_features, in_features).to(device)
+        self.wv = torch.nn.Linear(in_features, in_features).to(device)
+        self.wo = torch.nn.Linear(in_features, in_features).to(device)
 
     def forward(self, x: torch.Tensor):
         # split heads
@@ -85,10 +85,10 @@ class MemoryAttention(torch.nn.Module):
         self.in_features = in_features
         self.num_heads = num_heads
         self.head_features = in_features // num_heads
-        self.wq = torch.nn.Linear(in_features, in_features)
-        self.wk = torch.nn.Linear(in_features, in_features)
-        self.wv = torch.nn.Linear(in_features, in_features)
-        self.wo = torch.nn.Linear(in_features, in_features)
+        self.wq = torch.nn.Linear(in_features, in_features).to(device)
+        self.wk = torch.nn.Linear(in_features, in_features).to(device)
+        self.wv = torch.nn.Linear(in_features, in_features).to(device)
+        self.wo = torch.nn.Linear(in_features, in_features).to(device)
 
     def forward(self, x: torch.Tensor, mem: torch.Tensor):
         # split heads
@@ -112,8 +112,8 @@ class MemoryAttention(torch.nn.Module):
 class PositionwiseFF(torch.nn.Module):
     def __init__(self, inout_features=512, hidden_features=2048):
         super(PositionwiseFF, self).__init__()
-        self.l1 = torch.nn.Linear(inout_features, hidden_features)
-        self.l2 = torch.nn.Linear(hidden_features, inout_features)
+        self.l1 = torch.nn.Linear(inout_features, hidden_features).to(device)
+        self.l2 = torch.nn.Linear(hidden_features, inout_features).to(device)
 
     def forward(self, x):
         # L1
@@ -131,7 +131,7 @@ class Encoder(torch.nn.Module):
         super(Encoder, self).__init__()
         self.embedding = embedding
         self.dropout = torch.nn.Dropout(0.1)
-        self.ln = torch.nn.LayerNorm(embedding.embed_size)
+        self.ln = torch.nn.LayerNorm(embedding.embed_size).to(device)
         self.layers = []
         for _ in range(num_layers):
             attn = SelfAttention()
@@ -154,7 +154,7 @@ class Decoder(torch.nn.Module):
         super(Decoder, self).__init__()
         self.embedding = embedding
         self.dropout = torch.nn.Dropout(0.1)
-        self.ln = torch.nn.LayerNorm(embedding.embed_size)
+        self.ln = torch.nn.LayerNorm(embedding.embed_size).to(device)
         self.layers = []
         for _ in range(num_layers):
             mem_attn = MemoryAttention()
@@ -196,8 +196,8 @@ class Transformer(torch.nn.Module):
         return result
 
     def train_step(self, source, target):
-        source, src_mask = augment(torch.LongTensor(source).cuda(), sos=self.sos, eos=self.eos, pad=self.pad)
-        target, tgt_mask = augment(torch.LongTensor(target).cuda(), sos=self.sos, eos=self.eos, pad=self.pad)
+        source, src_mask = augment(torch.LongTensor(source).to(device), sos=self.sos, eos=self.eos, pad=self.pad)
+        target, tgt_mask = augment(torch.LongTensor(target).to(device), sos=self.sos, eos=self.eos, pad=self.pad)
         log_pr = self.forward(source, target[:, :-1])
         loss = self.loss_func(log_pr.reshape(-1, log_pr.shape[2]), target[:, 1:].reshape(-1))
 

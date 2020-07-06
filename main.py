@@ -29,7 +29,7 @@ def main(args):
         tgt_vocab_size=tgt_vocab_size,
         sos=sos_idx,
         eos=eos_idx,
-        pad=pad_idx).cuda()
+        pad=pad_idx)
 
     if not args.test:
         train_loader = get_loader(src['train'], tgt['train'], src_vocab, tgt_vocab, batch_size=args.batch_size, shuffle=True)
