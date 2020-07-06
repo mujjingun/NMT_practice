@@ -196,8 +196,8 @@ class Transformer(torch.nn.Module):
         return result
 
     def train_step(self, source, target):
-        source, src_mask = augment(torch.LongTensor(source), sos=self.sos, eos=self.eos, pad=self.pad)
-        target, tgt_mask = augment(torch.LongTensor(target), sos=self.sos, eos=self.eos, pad=self.pad)
+        source, src_mask = augment(torch.LongTensor(source).cuda(), sos=self.sos, eos=self.eos, pad=self.pad)
+        target, tgt_mask = augment(torch.LongTensor(target).cuda(), sos=self.sos, eos=self.eos, pad=self.pad)
         log_pr = self.forward(source, target[:, :-1])
         loss = self.loss_func(log_pr.reshape(-1, log_pr.shape[2]), target[:, 1:].reshape(-1))
 
