@@ -4,6 +4,8 @@ import argparse
 from dataset.dataloader import load_data, get_loader
 from dataset.field import Vocab
 from utils import seq2sen
+import model
+
 
 def main(args):
     src, tgt = load_data(args.path)
@@ -13,15 +15,21 @@ def main(args):
     tgt_vocab = Vocab(init_token='<sos>', eos_token='<eos>', pad_token='<pad>', unk_token='<unk>')
     tgt_vocab.load(os.path.join(args.path, 'vocab.de'))
 
-    # TODO: use these information.
     sos_idx = 0
     eos_idx = 1
     pad_idx = 2
     max_length = 50
 
-    # TODO: use these values to construct embedding layers
     src_vocab_size = len(src_vocab)
     tgt_vocab_size = len(tgt_vocab)
+
+    transformer = model.Transformer(
+        max_length=max_length,
+        src_vocab_size=src_vocab_size,
+        tgt_vocab_size=tgt_vocab_size,
+        sos=sos_idx,
+        eos=eos_idx,
+        pad=pad_idx).cuda()
 
     if not args.test:
         train_loader = get_loader(src['train'], tgt['train'], src_vocab, tgt_vocab, batch_size=args.batch_size, shuffle=True)
@@ -30,7 +38,8 @@ def main(args):
         # TODO: train
         for epoch in range(args.epochs):
             for src_batch, tgt_batch in train_loader:
-                pass
+                l = transformer.train_step(src_batch, tgt_batch)
+                print("Loss = ", l)
 
             # TODO: validation
             for src_batch, tgt_batch in valid_loader:
