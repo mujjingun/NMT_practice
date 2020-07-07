@@ -215,7 +215,7 @@ class Transformer(torch.nn.Module):
         return loss.item()
 
     def predict(self, source, max_length=10):
-        source, src_mask = augment(source)
+        source = augment(source)
         batch_size = source.shape[0]
         encoded = self.encoder(source)
 
