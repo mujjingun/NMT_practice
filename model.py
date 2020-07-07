@@ -25,6 +25,7 @@ class Embedding(torch.nn.Module):
         self.embed = torch.nn.Embedding(vocab_size, embed_size, padding_idx=pad).to(device)
         self.pos_embed = make_pos_embed(max_length, embed_size)
         self.dropout = torch.nn.Dropout(0.1)
+        self.unembedding = torch.nn.Linear(embed_size, vocab_size).to(device)
 
     def forward(self, x):
         word_embed = self.embed(x) * math.sqrt(self.embed_size)
@@ -34,7 +35,7 @@ class Embedding(torch.nn.Module):
         return result
 
     def unembed(self, x):
-        result = torch.matmul(x, self.embed.weight.transpose(0, 1))
+        result = self.unembedding(x)
         return result
 
 
@@ -169,6 +170,11 @@ class Decoder(torch.nn.Module):
         return x
 
 
+def augment(batch_seq):
+    x = torch.LongTensor(batch_seq).to(device)
+    return x
+
+
 # Transformer Model
 class Transformer(torch.nn.Module):
     def __init__(self, max_length, src_vocab_size, tgt_vocab_size, sos, eos, pad, d_model=512):
@@ -184,24 +190,14 @@ class Transformer(torch.nn.Module):
         self.optim = torch.optim.Adam(self.parameters(), lr=0, betas=(0.9, 0.98), eps=10e-9)
         self.loss_func = torch.nn.CrossEntropyLoss(ignore_index=pad)
 
-    # Append SOS and EOS to data
-    def augment(self, batch_seq):
-        batch_seq = torch.LongTensor(batch_seq).to(device)
-        x = F.pad(batch_seq, [1, 1], value=self.pad)
-        x[:, 0] = self.sos
-        mask = (x != self.pad)
-        end = F.pad((x == self.pad)[:, 1:] != (x == self.pad)[:, :-1], [1, 0, 0, 0])
-        x[end] = self.eos
-        return x, mask
-
     def forward(self, source, target):
         encoded = self.encoder(source)
         result = self.decoder(encoded, target)
         return result
 
     def loss(self, source, target):
-        source, src_mask = self.augment(source)
-        target, tgt_mask = self.augment(target)
+        source = augment(source)
+        target = augment(target)
         log_pr = self.forward(source, target[:, :-1])
         loss = self.loss_func(log_pr.reshape(-1, log_pr.shape[2]), target[:, 1:].reshape(-1))
         return loss
@@ -219,7 +215,7 @@ class Transformer(torch.nn.Module):
         return loss.item()
 
     def predict(self, source, max_length=10):
-        source, src_mask = self.augment(source)
+        source, src_mask = augment(source)
         batch_size = source.shape[0]
         encoded = self.encoder(source)
 
