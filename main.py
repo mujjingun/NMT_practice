@@ -59,7 +59,7 @@ def main(args):
 
             # validation
             for src_batch, tgt_batch in tqdm.tqdm(valid_loader):
-                loss = transformer.loss(src_batch, tgt_batch)
+                loss = transformer.loss(src_batch, tgt_batch).item()
                 val_losses.append(loss)
             print("Validation loss ", np.mean(val_losses))
 
