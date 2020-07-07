@@ -63,9 +63,9 @@ def main(args):
                 val_losses.append(loss)
             print("Validation loss ", np.mean(val_losses))
 
-        print("Saving to ", file_name)
-        transformer.save(file_name)
-        print("Saved.")
+            print("Saving to ", file_name)
+            transformer.save(file_name)
+            print("Saved.")
     else:
         # test
         test_loader = get_loader(src['test'], tgt['test'], src_vocab, tgt_vocab, batch_size=args.batch_size)
