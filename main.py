@@ -72,7 +72,6 @@ def main(args):
 
         pred = []
         for src_batch, tgt_batch in test_loader:
-            # TODO: predict pred_batch from src_batch with your model.
             pred_batch = transformer.predict(src_batch)
 
             # every sentences in pred_batch should start with <sos> token (index: 0) and end with <eos> token (index: 1).

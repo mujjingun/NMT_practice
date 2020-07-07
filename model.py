@@ -40,11 +40,12 @@ class Embedding(torch.nn.Module):
 
 # Multi Head Self-Attention
 class SelfAttention(torch.nn.Module):
-    def __init__(self, in_features=512, num_heads=8):
+    def __init__(self, masking, in_features=512, num_heads=8):
         super(SelfAttention, self).__init__()
         self.in_features = in_features
         self.num_heads = num_heads
         self.head_features = in_features // num_heads
+        self.masking = masking
         self.wq = torch.nn.Linear(in_features, in_features).to(device)
         self.wk = torch.nn.Linear(in_features, in_features).to(device)
         self.wv = torch.nn.Linear(in_features, in_features).to(device)
@@ -59,8 +60,8 @@ class SelfAttention(torch.nn.Module):
         # batched matrix multiply
         qk = torch.einsum('bqhd,bkhd->bhqk', q, k) / math.sqrt(self.head_features)
         # casual mask
-        # FIXME
-        qk[torch.triu(torch.ones_like(qk), diagonal=1).bool()] = -math.inf
+        if self.masking:
+            qk[torch.triu(torch.ones_like(qk), diagonal=1).bool()] = -math.inf
         # softmax
         a = torch.softmax(qk, dim=3)
         # apply attention
@@ -127,7 +128,7 @@ class Encoder(torch.nn.Module):
         self.attns = torch.nn.ModuleList()
         self.ffs = torch.nn.ModuleList()
         for _ in range(num_layers):
-            self.attns.append(SelfAttention())
+            self.attns.append(SelfAttention(masking=False))
             self.ffs.append(PositionwiseFF())
 
     def forward(self, source):
@@ -152,7 +153,7 @@ class Decoder(torch.nn.Module):
         self.ffs = torch.nn.ModuleList()
         for _ in range(num_layers):
             self.mem_attns.append(MemoryAttention())
-            self.self_attns.append(SelfAttention())
+            self.self_attns.append(SelfAttention(masking=True))
             self.ffs.append(PositionwiseFF())
 
     def forward(self, encoded, target):
