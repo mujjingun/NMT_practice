@@ -3,3 +3,4 @@
 __pycache__/*
 multi30k/*
 results/pred.txt
+*.t7

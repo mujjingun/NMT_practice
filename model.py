@@ -187,7 +187,7 @@ class Transformer(torch.nn.Module):
     # Append SOS and EOS to data
     def augment(self, batch_seq):
         batch_seq = torch.LongTensor(batch_seq).to(device)
-        x = F.pad(batch_seq, [1, 1, 0, 0], value=self.pad)
+        x = F.pad(batch_seq, [1, 1], value=self.pad)
         x[:, 0] = self.sos
         mask = (x != self.pad)
         end = F.pad((x == self.pad)[:, 1:] != (x == self.pad)[:, :-1], [1, 0, 0, 0])
@@ -218,12 +218,14 @@ class Transformer(torch.nn.Module):
 
         return loss.item()
 
-    def predict(self, source, max_length=50):
+    def predict(self, source, max_length=10):
         source, src_mask = self.augment(source)
         batch_size = source.shape[0]
         encoded = self.encoder(source)
 
-        target = torch.zeros([batch_size, 1], dtype=torch.long) + self.sos
+        # start with sos
+        target = torch.zeros([batch_size, 1], dtype=torch.long)
+        target.fill_(self.sos)
         target = target.to(device)
         for _ in tqdm.tqdm(range(max_length)):
             pr = self.decoder(encoded, target)[:, -1]
@@ -231,9 +233,15 @@ class Transformer(torch.nn.Module):
             new_col = torch.multinomial(pr, 1)
             target = torch.cat([target, new_col], dim=1)
 
-        # TODO: set pad_idx after eos
+        # add eos
+        target = F.pad(target, [0, 1])
+        target[:, -1] = self.eos
 
-        return target
+        # set pad after eos
+        pad_mask = F.pad((target == 1)[:, :-1], [1, 0])
+        target[pad_mask] = self.pad
+
+        return target.cpu().numpy().tolist()
 
     def save(self, file_name):
         save_state = {
@@ -244,7 +252,7 @@ class Transformer(torch.nn.Module):
         torch.save(save_state, file_name)
 
     def load(self, file_name):
-        load_state = torch.load(file_name)
+        load_state = torch.load(file_name, map_location=device)
         self.load_state_dict(load_state['weights'])
         self.optim.load_state_dict(load_state['optim'])
         self.step = load_state['step']
