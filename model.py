@@ -224,6 +224,7 @@ class Transformer(torch.nn.Module):
         encoded = self.encoder(source)
 
         target = torch.zeros([batch_size, 1], dtype=torch.long) + self.sos
+        target = target.to(device)
         for _ in tqdm.tqdm(range(max_length)):
             pr = self.decoder(encoded, target)[:, -1]
             pr = torch.softmax(pr, dim=1)
