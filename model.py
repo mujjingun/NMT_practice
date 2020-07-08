@@ -185,6 +185,7 @@ class Transformer(torch.nn.Module):
         self.decoder = Decoder(tgt_embedding)
         self.sos, self.eos, self.pad = sos, eos, pad
         self.d_model = d_model
+        self.max_length = max_length
         self.warmup_steps = 4000
         self.step = 1
         self.optim = torch.optim.Adam(self.parameters(), lr=0, betas=(0.9, 0.98), eps=10e-9)
@@ -214,7 +215,7 @@ class Transformer(torch.nn.Module):
 
         return loss.item()
 
-    def predict(self, source, max_length=10):
+    def predict(self, source):
         source = augment(source)
         batch_size = source.shape[0]
         encoded = self.encoder(source)
@@ -223,7 +224,7 @@ class Transformer(torch.nn.Module):
         target = torch.zeros([batch_size, 1], dtype=torch.long)
         target.fill_(self.sos)
         target = target.to(device)
-        for _ in tqdm.tqdm(range(max_length)):
+        for _ in tqdm.tqdm(range(self.max_length)):
             pr = self.decoder(encoded, target)[:, -1]
             pr = torch.softmax(pr, dim=1)
             new_col = torch.multinomial(pr, 1)
