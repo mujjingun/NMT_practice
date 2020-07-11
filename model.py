@@ -223,10 +223,9 @@ class Transformer(torch.nn.Module):
             encoded = self.encoder(source).repeat_interleave(beam_size, dim=0)
 
             # start with sos
-            probs = torch.ones([batch_size, beam_size])
-            target = torch.zeros([batch_size, beam_size, 1], dtype=torch.long)
+            probs = torch.ones([batch_size, beam_size]).to(device)
+            target = torch.zeros([batch_size, beam_size, 1], dtype=torch.long).to(device)
             target.fill_(self.sos)
-            target = target.to(device)
             for length in tqdm.tqdm(range(1, self.max_length + 1)):
                 pr = self.decoder(encoded, target.reshape(batch_size * beam_size, -1))[:, -1]
                 pr = torch.softmax(pr, dim=1)
