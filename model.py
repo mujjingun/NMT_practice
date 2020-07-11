@@ -35,7 +35,7 @@ class Embedding(torch.nn.Module):
         return result
 
     def unembed(self, x):
-        result = torch.matmul(x, self.embed.weight.transpose(0, 1))
+        result = self.unembedding(x)
         return result
 
 
@@ -54,7 +54,7 @@ class SelfAttention(torch.nn.Module):
 
     def forward(self, x: torch.Tensor):
         # split heads
-        shape = [x.shape[0], x.shape[1], self.num_heads, self.head_features]
+        shape = [*x.shape[:-1], self.num_heads, self.head_features]
         q = self.wq(x).reshape(shape)
         k = self.wk(x).reshape(shape)
         v = self.wv(x).reshape(shape)
@@ -86,9 +86,9 @@ class MemoryAttention(torch.nn.Module):
 
     def forward(self, x: torch.Tensor, mem: torch.Tensor):
         # split heads
-        q_shape = [x.shape[0], x.shape[1], self.num_heads, self.head_features]
+        q_shape = [*x.shape[:-1], self.num_heads, self.head_features]
         q = self.wq(x).reshape(q_shape)
-        m_shape = [mem.shape[0], mem.shape[1], self.num_heads, self.head_features]
+        m_shape = [*mem.shape[:-1], self.num_heads, self.head_features]
         k = self.wk(mem).reshape(m_shape)
         v = self.wv(mem).reshape(m_shape)
         # batched matrix multiply
@@ -181,6 +181,7 @@ class Transformer(torch.nn.Module):
         super(Transformer, self).__init__()
         src_embedding = Embedding(max_length + 1, src_vocab_size, pad=pad, embed_size=d_model)
         self.encoder = Encoder(src_embedding)
+        self.vocab_size = tgt_vocab_size
         tgt_embedding = Embedding(max_length + 1, tgt_vocab_size, pad=pad, embed_size=d_model)
         self.decoder = Decoder(tgt_embedding)
         self.sos, self.eos, self.pad = sos, eos, pad
@@ -215,30 +216,49 @@ class Transformer(torch.nn.Module):
 
         return loss.item()
 
-    def predict(self, source):
-        source = augment(source)
-        batch_size = source.shape[0]
-        encoded = self.encoder(source)
+    def predict(self, source, beam_size=4):
+        with torch.no_grad():
+            source = augment(source)
+            batch_size = source.shape[0]
+            encoded = self.encoder(source).repeat_interleave(beam_size, dim=0)
 
-        # start with sos
-        target = torch.zeros([batch_size, 1], dtype=torch.long)
-        target.fill_(self.sos)
-        target = target.to(device)
-        for _ in tqdm.tqdm(range(self.max_length)):
-            pr = self.decoder(encoded, target)[:, -1]
-            pr = torch.softmax(pr, dim=1)
-            new_col = torch.multinomial(pr, 1)
-            target = torch.cat([target, new_col], dim=1)
+            # start with sos
+            probs = torch.ones([batch_size, beam_size])
+            target = torch.zeros([batch_size, beam_size, 1], dtype=torch.long)
+            target.fill_(self.sos)
+            target = target.to(device)
+            for length in tqdm.tqdm(range(1, self.max_length + 1)):
+                pr = self.decoder(encoded, target.reshape(batch_size * beam_size, -1))[:, -1]
+                pr = torch.softmax(pr, dim=1)
+                pr = pr.reshape(batch_size, beam_size, self.vocab_size)
 
-        # add eos
-        target = F.pad(target, [0, 1])
-        target[:, -1] = self.eos
+                # multiply new conditional probability
+                pr = probs.unsqueeze(2) * pr
+                pr = pr.reshape(batch_size, -1)
 
-        # set pad after eos
-        pad_mask = F.pad((target == 1)[:, :-1], [1, 0])
-        target[pad_mask] = self.pad
+                # get top k
+                probs, indices = torch.topk(pr, beam_size)
 
-        return target.cpu().numpy().tolist()
+                beam_indices = indices // self.vocab_size
+                beam_indices = beam_indices.unsqueeze(2).repeat_interleave(length, dim=2)
+                word_indices = indices % self.vocab_size
+
+                target = torch.gather(target, 1, beam_indices)
+                new_col = word_indices.unsqueeze(2)
+                target = torch.cat([target, new_col], dim=2)
+
+            best_idx = torch.argmax(probs, dim=1)
+            target = target[torch.arange(batch_size), best_idx]
+
+            # add eos
+            target = F.pad(target, [0, 1])
+            target[:, -1] = self.eos
+
+            # set pad after eos
+            pad_mask = F.pad((target == 1)[:, :-1], [1, 0])
+            target[pad_mask] = self.pad
+
+            return target.cpu().numpy().tolist()
 
     def save(self, file_name):
         save_state = {
