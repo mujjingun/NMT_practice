@@ -35,7 +35,7 @@ class Embedding(torch.nn.Module):
         return result
 
     def unembed(self, x):
-        result = self.unembedding(x)
+        result = torch.matmul(x, self.embed.weight.transpose(0, 1))
         return result
 
 
